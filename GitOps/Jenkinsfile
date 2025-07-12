@@ -1,25 +1,25 @@
-@Library('Shared') _
 pipeline {
     agent any
-    
+    environment { 
+    EMAILID = 'cloudwithrk@gmail.com' 
+    FROMEMAIL = 'cloudwithrk@gmail.com'
+  }
     parameters {
         string(name: 'DOCKER_TAG', defaultValue: '', description: 'Docker tag of the image built by the CI job')
+        string(name: 'GIT_URL', defaultValue: '', description: 'Github repository')
+        string(name: 'BRANCH_NAME', defaultValue: '', description: 'Github repository branch')
     }
 
     stages {
         stage("Workspace cleanup"){
             steps{
-                script{
-                    cleanWs()
-                }
+                cleanWs() 
             }
         }
         
         stage('Git: Code Checkout') {
             steps {
-                script{
-                    code_checkout("https://github.com/LondheShubham153/Springboot-BankApp.git","DevOps")
-                }
+                 git branch: "${BRANCH_NAME}", url: "${GIT_URL}" 
             }
         }
         
@@ -35,61 +35,91 @@ pipeline {
         stage("Update: Kubernetes manifest"){
             steps{
                 script{
-                    dir('kubernetes'){
-                        sh """
-                            sed -i -e 's|trainwithshubham/bankapp-eks:.*|trainwithshubham/bankapp-eks:${params.DOCKER_TAG}|g' bankapp-deployment.yaml
-                        """
+                    dir('k8s'){
+                        sh '''
+                            sed -i -e 's|cloudwithrk/bankapp:.*|cloudwithrk/bankapp:${params.DOCKER_TAG}|g' app-deployment.yaml
+                        '''
                     }
                 }
             }
         }
         
-        stage("Git: Code update and push to GitHub"){
-            steps{
-                script{
-                    withCredentials([gitUsernamePassword(credentialsId: 'Github-cred', gitToolName: 'Default')]) {
+       stage("Git: Code update and push to GitHub") {
+            steps {
+                script {
+                    withCredentials([gitUsernamePassword(credentialsId: 'GithubCreds', usernameVariable: 'GIT_USERNAME', passwordVariable: 'GIT_PASSWORD')]) {
                         sh '''
                         echo "Checking repository status: "
-                        git status
-                    
+                        git status 
+
                         echo "Adding changes to git: "
                         git add .
-                        
-                        echo "Commiting changes: "
-                        git commit -m "Updated K8s Deployment Docker Image Version"
-                        
-                        echo "Pushing changes to github: "
-                        git push https://github.com/LondheShubham153/Springboot-BankApp.git DevOps
-                    '''
+
+                        echo "Committing changes: "
+                        git commit -m "Updated K8s Deployment Docker Image Version" || echo "Nothing to commit"
+
+                        echo "Pushing changes to GitHub: "
+                        git push ${GIT_URL} DevOps
+                        '''
                     }
                 }
             }
         }
+
     }
-  post {
-        always {
-            script {
-                emailext attachLog: true,
-                from: 'trainwithshubham@gmail.com',
-                subject: "BankApp Application has been updated and deployed - '${currentBuild.result}'",
+ post {
+    always {
+        script {
+            emailext(
+                attachLog: true,
+                attachmentsPattern: '**/dependency-check-report.xml, **/sonar-report.html',
+                from: "${FROMEMAIL}",
+                subject: "✅ BankApp Deployment Status: ${currentBuild.result}",
                 body: """
                     <html>
-                    <body>
-                        <div style="background-color: #FFA07A; padding: 10px; margin-bottom: 10px;">
-                            <p style="color: black; font-weight: bold;">Project: ${env.JOB_NAME}</p>
-                        </div>
-                        <div style="background-color: #90EE90; padding: 10px; margin-bottom: 10px;">
-                            <p style="color: black; font-weight: bold;">Build Number: ${env.BUILD_NUMBER}</p>
-                        </div>
-                        <div style="background-color: #87CEEB; padding: 10px; margin-bottom: 10px;">
-                            <p style="color: black; font-weight: bold;">URL: ${env.BUILD_URL}</p>
-                        </div>
-                    </body>
+                        <body style="font-family: Arial, sans-serif; line-height: 1.6;">
+                            <h2 style="color: #2E86C1;">🚀 BankApp Deployment Report</h2>
+                            
+                            <table style="border-collapse: collapse; width: 100%; max-width: 600px;">
+                                <tr style="background-color: #f2f2f2;">
+                                    <td style="padding: 8px; font-weight: bold;">Project</td>
+                                    <td style="padding: 8px;">${env.JOB_NAME}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px; font-weight: bold;">Build Number</td>
+                                    <td style="padding: 8px;">#${env.BUILD_NUMBER}</td>
+                                </tr>
+                                <tr style="background-color: #f2f2f2;">
+                                    <td style="padding: 8px; font-weight: bold;">Status</td>
+                                    <td style="padding: 8px;">${currentBuild.result}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px; font-weight: bold;">Build URL</td>
+                                    <td style="padding: 8px;">
+                                        <a href="${env.BUILD_URL}" style="color: #2980B9;">View Build Details</a>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <h3 style="margin-top: 20px; color: #27AE60;">📊 Attached Reports:</h3>
+                            <ul>
+                                <li>✔️ OWASP Dependency Check Report (XML)</li>
+                                <li>✔️ SonarQube Report (HTML)</li>
+                                <li>✔️ Full Jenkins Build Log</li>
+                            </ul>
+                            
+                            <p style="margin-top: 20px;">
+                                Please review the attached files for details.<br>
+                                This is an automated notification from your CI/CD Pipeline.
+                            </p>
+                            
+                            <p style="color: #999;">&mdash; DevOps Automation</p>
+                        </body>
                     </html>
-            """,
-            to: 'trainwithshubham@gmail.com',
-            mimeType: 'text/html'
-            }
+                """,
+                to: "${EMAILID}",
+                mimeType: 'text/html'
+            )
         }
     }
 }
